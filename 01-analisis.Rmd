@@ -21,6 +21,7 @@ library(dplyr)
 library(janitor)
 library(stringr)
 library(rstatix)
+library(ggplot2)
 ```
 
 
@@ -36,21 +37,103 @@ nrow(df)
 ```
 
 ```{r}
-# Limpieza básica
-df <- df %>% clean_names()
+# Limpieza básica y correccion
+
+df <- df %>% clean_names
+# corregir lev a LEV en grado_severidad
+df <- df %>% mutate(grado_severidad = str_to_upper(grado_severidad))
+
+# Parseo y normalización conservadora de EDAD_REGISTRO + TIPO_EDAD
+df_clean <- df %>%
+  mutate(
+    # Guardar columnas originales por seguridad
+    edad_raw = as.character(edad_registro),
+    tipo_raw = as.character(tipo_edad),
+
+    # Normalizar la unidad
+    tipo_u = if_else(is.na(tipo_raw), NA_character_, toupper(str_trim(tipo_raw))),
+
+    # Extraer solo números (sin permitir negativos)
+    edad_num = as.numeric(str_extract(edad_raw, "\\d+\\.?\\d*")),
+
+    # Inferir unidad: primero desde tipo_raw, luego desde el texto libre
+    tipo_infer = case_when(
+      tipo_u %in% c("A","AÑOS","AÑO","AN") ~ "A",
+      tipo_u %in% c("M","MESES","MES")     ~ "M",
+      tipo_u %in% c("D","DIAS","DÍA","DÍAS","DIA") ~ "D",
+      str_detect(edad_raw, regex("años|año|anos", ignore_case = TRUE)) ~ "A",
+      str_detect(edad_raw, regex("\\bmes\\b|meses", ignore_case = TRUE)) ~ "M",
+      str_detect(edad_raw, regex("\\bd[ií]a|dias|días", ignore_case = TRUE)) ~ "D",
+      TRUE ~ NA_character_
+    ),
+
+    # Conversión a meses
+    edad_meses = case_when(
+      !is.na(edad_num) & tipo_infer == "A" ~ edad_num * 12,
+      !is.na(edad_num) & tipo_infer == "M" ~ edad_num,
+      !is.na(edad_num) & tipo_infer == "D" ~ round(edad_num / 30, 1),
+      TRUE ~ NA_real_
+    ),
+
+    # Flags de control de calidad
+    edad_flag = case_when(
+      is.na(edad_num) & is.na(tipo_infer)   ~ "no_parse_no_unit",
+      is.na(edad_meses)                     ~ "parse_failed_or_no_unit",
+      edad_num < 0                          ~ "negative_input",
+      edad_meses >= 60                      ~ "out_of_range_>=60_months",
+      TRUE                                  ~ "ok"
+    )
+  )
+
+# Resumen de las banderas de calidad
+df_clean %>%
+  count(edad_flag) %>%
+  arrange(desc(n)) %>%
+  print(n = 20)
+
+# Dataset final solo con casos válidos (< 60 meses y no NA)
+df_for_analysis <- df_clean %>%
+  filter(!is.na(edad_meses) & edad_meses >= 0 & edad_meses < 60)
+
+nrow(df_for_analysis)
+# EXPORTAR A CSV para análisis en SPSS o similar
+write.csv(df_for_analysis, "datos/ANEMIA_DA_clean.csv", row.names = FALSE)
 ```
+
+```{r}
+# NO SE USO PORQUE LAS PROPORCIONES DE GENERO NO ESTAN TAN DISPARADAS
+
+set.seed(123)
+
+# Número mínimo de casos entre los géneros
+n_min <- df_for_analysis %>% count(genero) %>% summarise(minimo = min(n)) %>% pull(minimo)
+
+# Muestra balanceada
+muestra_balanceada <- df_for_analysis %>%
+  group_by(genero) %>%
+  sample_n(n_min) %>%
+  ungroup()
+
+table(muestra_balanceada$genero)
+nrow(muestra_balanceada)
+```
+
+
 
 
 ```{r}
 # Frecuencias de género
-tab_genero <- df %>% tabyl(genero)
+tab_genero <- df_for_analysis %>% tabyl(genero)
 tab_genero
 
 # Severidad de anemia
-tab_severidad <- df %>% tabyl(grado_severidad)
+tab_severidad <- df_for_analysis %>% tabyl(grado_severidad)
 tab_severidad
   
-  summary(df)
+# Edad datos atipicos
+boxplot(df_for_analysis$edad_meses, main = "Boxplot de Edad en Meses", ylab = "Edad (meses)")
+
+summary(df_for_analysis)
 ```
 
 # HIPOTESIS CON UN Nivel de significancia elegido: α = 0.05.
@@ -62,15 +145,17 @@ tab_severidad
 ## H1 (alternativa): Sí existe relación entre género y severidad.
 
 ```{r}
-tabla_bi <- table(df$genero, df$grado_severidad)
+tabla_bi <- table(muestra_balanceada$genero, muestra_balanceada$grado_severidad)
 chisq.test(tabla_bi)
 
 ```
-Resultado: χ²(3, n=59225) = 43.39, p = 2.03e-09.
+Resultado: χ²(2, n = 59,225) = 42.04, p < 0.001.
 
-Decisión: Como p < 0.05, se rechaza H0.
+Decisión: Se rechaza H0.
 
-Conclusión: Existe evidencia estadísticamente significativa de que el género está asociado con el grado de severidad de la anemia.
+Interpretación:
+Existe evidencia estadísticamente significativa de que el género y el grado de severidad de la anemia no son independientes. Esto quiere decir que la distribución de la severidad (leve, moderada, severa) difiere según el género del niño.
+Importante: El chi-cuadrado detecta asociación, pero no indica dirección ni magnitud de la relación.
 
 
 ---
@@ -82,17 +167,19 @@ Conclusión: Existe evidencia estadísticamente significativa de que el género 
 ## H1: Al menos un grupo difiere.
 
 ```{r}
-df %>% 
+df_for_analysis %>% 
   anova_test(edad_registro ~ grado_severidad)
 
 ```
 
-Resultado: ANOVA, F(3, 59221) = 0.663, p = 0.575.
+Resultado: F(2, 57,209) = 0.155, p = 0.857.
 
-Decisión: Como p > 0.05, no se rechaza H0.
+Decisión: No se rechaza H0.
 
-Conclusión: No hay diferencias significativas en la edad promedio entre los diferentes grados de severidad.
-En otras palabras, tanto niños de menor edad como de mayor edad pueden presentar anemia leve, moderada o severa en proporciones similares.
+Interpretación:
+No existen diferencias estadísticamente significativas en la edad promedio entre los grupos de severidad. Es decir, tanto niños más pequeños como más grandes (menores de 5 años) presentan anemia leve, moderada o severa en proporciones similares.
+
+Esto sugiere que la edad en meses no es un factor diferenciador en la gravedad del diagnóstico.
 
 ---
 
@@ -105,32 +192,104 @@ En otras palabras, tanto niños de menor edad como de mayor edad pueden presenta
 ```{r}
 
 # Q-Q plot
-qqnorm(df$edad_registro)
+qqnorm(df_for_analysis$edad_meses)
 # No es normalidad, pero con gran n, se puede usar Pearson
  
-cor.test(df$edad_registro, df$cantidad, method = "pearson")
+cor.test(df_for_analysis$edad_registro, df_for_analysis$cantidad, method = "pearson")
 
 ```
 
-Resultado: r = 0.014, p = 0.00057, IC95% [0.006 – 0.022].
+Resultado: r = 0.015, IC95% [0.007 – 0.024], p < 0.001.
 
-Decisión: Como p < 0.05, se rechaza H0.
+Decisión: Se rechaza H0.
 
-Conclusión: Existe una correlación estadísticamente significativa, pero es muy débil (cercana a 0), lo que indica que en la práctica la edad no se relaciona de manera importante con la cantidad de diagnósticos.
+Interpretación:
+Se observa una correlación estadísticamente significativa entre la edad y la cantidad de diagnósticos. Sin embargo, el coeficiente de correlación (r ≈ 0.015) es muy cercano a 0, lo que indica una relación prácticamente nula.
+
+En términos prácticos, aunque la prueba detecta significancia por el gran tamaño muestral, la edad de los niños casi no influye en el número de diagnósticos registrados.
 
 ***OJO: El valor p no te dice si la relación es importante, solo si es estadísticamente detectable. La interpretación debe incluir el contexto y el tamaño del efecto.***
 
 
 ```{r}
 # Provincia vs Severidad
-table(df$provincia, df$grado_severidad)
+table(df_for_analysis$provincia, df_for_analysis$grado_severidad)
 
-# Financiamiento vs Severidad
-table
+# Edad vs Severidad
+table(df_for_analysis$edad_meses, df_for_analysis$grado_severidad)
 
 # Genero vs Severidad
-table(df$genero, df$grado_severidad)
+table(df_for_analysis$genero, df_for_analysis$grado_severidad)
 
 ```
+```{r}
+# Tabla de proporciones
+
+ggplot(df_for_analysis, aes(x = grado_severidad, fill = genero)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Distribución de la severidad de anemia según género",
+    x = "Grado de severidad",
+    y = "Frecuencia",
+    fill = "Género"
+  ) +
+  theme_minimal()
+
+
+prop_tab <- df_for_analysis %>%
+  count(genero, grado_severidad) %>%
+  group_by(genero) %>%
+  mutate(prop = n / sum(n))
+
+# Barras porcentuales
+ggplot(prop_tab, aes(x = genero, y = prop, fill = grado_severidad)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Distribución del grado de severidad según género",
+    x = "Género",
+    y = "Proporción (%)",
+    fill = "Severidad"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+
+ggplot(df_for_analysis, aes(x = grado_severidad, y = edad_meses, fill = grado_severidad)) +
+  geom_boxplot(alpha = 0.7) +
+  labs(
+    title = "Distribución de la edad según el grado de severidad de la anemia",
+    x = "Grado de severidad",
+    y = "Edad (en meses)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(df_for_analysis, aes(x = grado_severidad, y = edad_meses, fill = grado_severidad)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red") +
+  labs(
+    title = "Edad (meses) según grado de severidad de la anemia",
+    x = "Grado de severidad",
+    y = "Edad en meses"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+```{r}
+ggplot(df_for_analysis, aes(x = edad_meses, y = cantidad)) +
+  geom_jitter(alpha = 0.3, width = 0.3, height = 0.3, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "red") + # Línea de regresión
+  labs(
+    title = "Relación entre edad (meses) y cantidad de diagnósticos",
+    x = "Edad en meses",
+    y = "Cantidad de diagnósticos"
+  ) +
+  theme_minimal()
+
+```
+
 
 
