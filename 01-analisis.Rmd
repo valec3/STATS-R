@@ -1,0 +1,136 @@
+---
+title: "Análisis estadístico: Detección de casos de anemia en menores de 5 años — Región San Martín"
+author: "Víctor R"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    theme: lumen
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+library(readxl) 
+library(dplyr)
+library(janitor)
+library(stringr)
+library(rstatix)
+```
+
+
+
+```{r}
+# Carga de datos
+path <- "C:\\Users\\USER\\Development\\UNA\\STATS-R\\datos\\ANEMIA_DA.xlsx"
+df <- read_excel(path)
+cat(">> Nombres originales:\n")
+print(names(df))
+df %>% glimpse()
+nrow(df)
+```
+
+```{r}
+# Limpieza básica
+df <- df %>% clean_names()
+```
+
+
+```{r}
+# Frecuencias de género
+tab_genero <- df %>% tabyl(genero)
+tab_genero
+
+# Severidad de anemia
+tab_severidad <- df %>% tabyl(grado_severidad)
+tab_severidad
+  
+  summary(df)
+```
+
+# HIPOTESIS CON UN Nivel de significancia elegido: α = 0.05.
+
+# Hipótesis 1: ¿Existe asociación entre género y grado de severidad de la anemia?
+
+## H0 (nula): No existe relación entre género y severidad.
+
+## H1 (alternativa): Sí existe relación entre género y severidad.
+
+```{r}
+tabla_bi <- table(df$genero, df$grado_severidad)
+chisq.test(tabla_bi)
+
+```
+Resultado: χ²(3, n=59225) = 43.39, p = 2.03e-09.
+
+Decisión: Como p < 0.05, se rechaza H0.
+
+Conclusión: Existe evidencia estadísticamente significativa de que el género está asociado con el grado de severidad de la anemia.
+
+
+---
+
+# Hipótesis 2: ¿La edad se asocia con el grado de severidad?
+
+## H0: La edad promedio es igual entre los grupos de severidad.
+
+## H1: Al menos un grupo difiere.
+
+```{r}
+df %>% 
+  anova_test(edad_registro ~ grado_severidad)
+
+```
+
+Resultado: ANOVA, F(3, 59221) = 0.663, p = 0.575.
+
+Decisión: Como p > 0.05, no se rechaza H0.
+
+Conclusión: No hay diferencias significativas en la edad promedio entre los diferentes grados de severidad.
+En otras palabras, tanto niños de menor edad como de mayor edad pueden presentar anemia leve, moderada o severa en proporciones similares.
+
+---
+
+# Hipótesis 3: ¿Existe correlación entre edad y cantidad de diagnósticos?
+
+## H0: No hay correlación.
+
+## H1: Sí hay correlación.
+
+```{r}
+
+# Q-Q plot
+qqnorm(df$edad_registro)
+# No es normalidad, pero con gran n, se puede usar Pearson
+ 
+cor.test(df$edad_registro, df$cantidad, method = "pearson")
+
+```
+
+Resultado: r = 0.014, p = 0.00057, IC95% [0.006 – 0.022].
+
+Decisión: Como p < 0.05, se rechaza H0.
+
+Conclusión: Existe una correlación estadísticamente significativa, pero es muy débil (cercana a 0), lo que indica que en la práctica la edad no se relaciona de manera importante con la cantidad de diagnósticos.
+
+***OJO: El valor p no te dice si la relación es importante, solo si es estadísticamente detectable. La interpretación debe incluir el contexto y el tamaño del efecto.***
+
+
+```{r}
+# Provincia vs Severidad
+table(df$provincia, df$grado_severidad)
+
+# Financiamiento vs Severidad
+table
+
+# Genero vs Severidad
+table(df$genero, df$grado_severidad)
+
+```
+
+
