@@ -145,17 +145,18 @@ summary(df_for_analysis)
 ## H1 (alternativa): Sí existe relación entre género y severidad.
 
 ```{r}
-tabla_bi <- table(muestra_balanceada$genero, muestra_balanceada$grado_severidad)
+tabla_bi <- table(df_for_analysis$genero, df_for_analysis$grado_severidad)
 chisq.test(tabla_bi)
 
 ```
-Resultado: χ²(2, n = 59,225) = 42.04, p < 0.001.
+Resultado:
+χ²(2, n = 57,212) = 42.039, p = 7.437e-10.
 
-Decisión: Se rechaza H0.
+Decisión: Como p < 0.05, se rechaza H0.
 
-Interpretación:
-Existe evidencia estadísticamente significativa de que el género y el grado de severidad de la anemia no son independientes. Esto quiere decir que la distribución de la severidad (leve, moderada, severa) difiere según el género del niño.
-Importante: El chi-cuadrado detecta asociación, pero no indica dirección ni magnitud de la relación.
+Interpretación: Existe evidencia estadísticamente significativa de que el género y el grado de severidad de la anemia no son independientes. Esto significa que la severidad (leve, moderada, severa) se distribuye de forma diferente entre niños y niñas.
+
+Nota: El test chi-cuadrado indica asociación, pero no muestra la magnitud ni dirección de esa asociación.
 
 
 ---
@@ -168,18 +169,15 @@ Importante: El chi-cuadrado detecta asociación, pero no indica dirección ni ma
 
 ```{r}
 df_for_analysis %>% 
-  anova_test(edad_registro ~ grado_severidad)
+  anova_test(edad_meses ~ grado_severidad)
 
 ```
 
-Resultado: F(2, 57,209) = 0.155, p = 0.857.
+Resultados del ANOVA: F(2, 57,209) = 319.31, p < 0.001, ges = 0.011
 
-Decisión: No se rechaza H0.
+Decisión: Se rechaza H0.
 
-Interpretación:
-No existen diferencias estadísticamente significativas en la edad promedio entre los grupos de severidad. Es decir, tanto niños más pequeños como más grandes (menores de 5 años) presentan anemia leve, moderada o severa en proporciones similares.
-
-Esto sugiere que la edad en meses no es un factor diferenciador en la gravedad del diagnóstico.
+Interpretación: Existen diferencias estadísticamente significativas en la edad promedio entre los grupos de severidad. Sin embargo, el tamaño del efecto es muy pequeño (ges = 0.011). Esto indica que la edad tiene una influencia muy débil sobre la severidad de la anemia, sin relevancia clínica considerable.
 
 ---
 
@@ -195,18 +193,15 @@ Esto sugiere que la edad en meses no es un factor diferenciador en la gravedad d
 qqnorm(df_for_analysis$edad_meses)
 # No es normalidad, pero con gran n, se puede usar Pearson
  
-cor.test(df_for_analysis$edad_registro, df_for_analysis$cantidad, method = "pearson")
+cor.test(df_for_analysis$edad_meses, df_for_analysis$cantidad, method = "pearson")
 
 ```
 
-Resultado: r = 0.015, IC95% [0.007 – 0.024], p < 0.001.
+Resultados del test de correlación de Pearson: r = -0.0038, IC95% [-0.0120, 0.0044], t = -0.91, gl = 57,210, p = 0.360
 
-Decisión: Se rechaza H0.
+Decisión: No se rechaza H0.
 
-Interpretación:
-Se observa una correlación estadísticamente significativa entre la edad y la cantidad de diagnósticos. Sin embargo, el coeficiente de correlación (r ≈ 0.015) es muy cercano a 0, lo que indica una relación prácticamente nula.
-
-En términos prácticos, aunque la prueba detecta significancia por el gran tamaño muestral, la edad de los niños casi no influye en el número de diagnósticos registrados.
+Interpretación: No existe correlación estadísticamente significativa entre la edad y la cantidad de diagnósticos. El coeficiente de correlación es cercano a 0, lo que indica ausencia de relación lineal entre ambas variables.
 
 ***OJO: El valor p no te dice si la relación es importante, solo si es estadísticamente detectable. La interpretación debe incluir el contexto y el tamaño del efecto.***
 
@@ -256,18 +251,6 @@ ggplot(prop_tab, aes(x = genero, y = prop, fill = grado_severidad)) +
 
 
 ```{r}
-
-ggplot(df_for_analysis, aes(x = grado_severidad, y = edad_meses, fill = grado_severidad)) +
-  geom_boxplot(alpha = 0.7) +
-  labs(
-    title = "Distribución de la edad según el grado de severidad de la anemia",
-    x = "Grado de severidad",
-    y = "Edad (en meses)"
-  ) +
-  theme_minimal()
-```
-
-```{r}
 ggplot(df_for_analysis, aes(x = grado_severidad, y = edad_meses, fill = grado_severidad)) +
   geom_boxplot(alpha = 0.7, outlier.color = "red") +
   labs(
@@ -282,6 +265,17 @@ ggplot(df_for_analysis, aes(x = grado_severidad, y = edad_meses, fill = grado_se
 ggplot(df_for_analysis, aes(x = edad_meses, y = cantidad)) +
   geom_jitter(alpha = 0.3, width = 0.3, height = 0.3, color = "steelblue") +
   geom_smooth(method = "lm", se = TRUE, color = "red") + # Línea de regresión
+  labs(
+    title = "Relación entre edad (meses) y cantidad de diagnósticos",
+    x = "Edad en meses",
+    y = "Cantidad de diagnósticos"
+  ) +
+  theme_minimal()
+
+# DISPERSION DE PUNTOS
+ggplot(df_for_analysis, aes(x = edad_meses, y = cantidad)) +
+  geom_point(alpha = 0.3, color = "steelblue ") +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
   labs(
     title = "Relación entre edad (meses) y cantidad de diagnósticos",
     x = "Edad en meses",
